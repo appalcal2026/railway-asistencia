@@ -1,0 +1,137 @@
+ @URL =  https://ralewayapi-production.up.railway.app
+
+###
+# Obtener todos los usuarios
+GET {{URL}}/traer_usuarios
+
+###
+# Crear usuario
+POST {{URL}}/nuevo_usuario
+Content-Type: application/json
+
+{
+    "nombre": "Juan",
+    "apellido": "Perez",
+    "provincia": "Buenos Aires"
+}
+
+
+###
+# Actualizar usuario con id=1
+PUT {{URL}}/actualizar_usuario/2
+Content-Type: application/json
+
+{
+    "nom": "Juan Actualizado"
+}
+
+###
+# Eliminar usuario con id=1
+DELETE {{URL}}/eliminar_usuario/6
+
+###
+GET {{URL}}/nueva_ruta
+
+#########################################
+
+# obtener todos los usuarios
+GET {{URL}}/traer_usuarios
+
+###
+# Crear usuario
+POST {{URL}}/nuevo_usuario
+Content-Type: application/json
+
+{
+    "nombre": "Pablo",
+    "apellido": "Navas",
+    "provincia": "Misiones"
+}
+
+###
+# Actualizar usuario con id=1
+PUT {{URL}}/actualizar_usuario/1
+Content-Type: application/json
+
+{
+    "nom": "Juan Actualizado"
+}
+
+###
+# Eliminar usuario con id=1
+DELETE {{URL}}/eliminar_usuario/1
+
+
+##################################
+
+
+#### 0. CREAR MODALIDAD
+POST {{URL}}/modalidad
+Content-Type: application/json
+
+{
+    "nombre_modalidad": "Programacion"
+}
+
+###
+
+### 1. CREAR CURSO
+POST {{URL}}/curso
+Content-Type: application/json
+
+{
+    "nombre_curso": "7B",
+    "modalidad_idmodalidad": 1
+}
+
+###
+
+### 2. CREAR ALUMNO
+POST {{URL}}/alumno
+Content-Type: application/json
+
+{
+    "nombre": "Agustina",
+    "apellido": "Centeno",
+    "Cursos_idCursos": 1
+}
+
+###
+
+### 3. CREAR PRECEPTOR
+POST {{URL}}/preceptor
+Content-Type: application/json
+
+{
+    "nombre_usuario": "Santiago",
+    "email": "santi.pro@sagradoalcal.edu.ar",
+    "contraseña": 12378
+}
+
+###
+
+### 4. REGISTRAR NUEVA ASISTENCIA
+POST {{URL}}/nueva_asistencia
+Content-Type: application/json
+
+{
+    "fecha": "2026-07-06 07:55:00",
+    "estado": 1,
+    "id_preceptor": 1,
+    "id_alumno": 1
+}
+
+###
+### 5.AVISO DE ASISTENCIA
+POST {{URL}}/nueva_notificacion
+Content-Type: application/json
+
+{
+    "titulo": "Aviso de Asistencia",
+    "mensaje": "Se registro una falta el dia de hoy.",
+    "fecha": "2026-07-08 12:45:00",
+    "Alumno_idAlumno": 1
+}
+
+### 6. OBTENER HISTORIAL DE ASISTENCIAS
+GET {{URL}}/traer_asistencias
