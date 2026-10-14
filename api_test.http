@@ -1,4 +1,6 @@
- @URL =  https://ralewayapi-production.up.railway.app
+ @URL = https://web-production-d8e40.up.railway.app
+ 
+ #https://ralewayapi-production.up.railway.app
 
 ###
 # Obtener todos los usuarios
