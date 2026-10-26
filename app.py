@@ -273,11 +273,15 @@ def insertar_asistencia():
         fecha = datos["fecha"]
         hora = datos["hora"]
         #id_preceptor = datos["id_preceptor"]
-        id_alumno = datos["id_alumno"]
+        legajo_alumno = datos["id_alumno"]
         tipo_asistencia = datos["opcionSeleccionada"]
 
         cursor = mysql.connection.cursor()
-        sql = "INSERT INTO asistencia(fecha, Alumno_idAlumno, tipo_asistencia_idtipo_asistencia) VALUES (%s, %s, %s);"
+        sql0= "Select idAlumno from alumno where legajo = %s"
+        cursor.execute(sql, (legajo_alumno,))
+        resultado = cursor.fetchone()
+        id_alumno = resultado[0]
+        sql = "INSERT INTO asistencia(fecha, Alumno_idAlumno, tipo_asistencia_idtipo_asistencia) VALUES (%s, %s, %s) WHERE ;"
         cursor.execute(sql, (fecha, id_alumno, tipo_asistencia))
         mysql.connection.commit()
         cursor.close()
