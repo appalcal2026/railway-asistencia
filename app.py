@@ -271,13 +271,14 @@ def insertar_asistencia():
     try:
         datos = request.get_json(force=True)
         fecha = datos["fecha"]
-        estado = datos["estado"]
-        id_preceptor = datos["id_preceptor"]
+        hora = datos["hora"]
+        #id_preceptor = datos["id_preceptor"]
         id_alumno = datos["id_alumno"]
+        tipo_asistencia = datos["opcionSeleccionada"]
 
         cursor = mysql.connection.cursor()
-        sql = "INSERT INTO Asistencia(fecha, estado, preceptor_idpreceptor, Alumno_idAlumno) VALUES (%s, %s, %s, %s);"
-        cursor.execute(sql, (fecha, estado, id_preceptor, id_alumno))
+        sql = "INSERT INTO asistencia(fecha, Alumno_idAlumno, tipo_asistencia_idtipo_asistencia) VALUES (%s, %s, %s);"
+        cursor.execute(sql, (fecha, id_alumno, tipo_asistencia))
         mysql.connection.commit()
         cursor.close()
 
