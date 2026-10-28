@@ -259,6 +259,11 @@ def insertar_asistencia():
         resultado = cursor.fetchone()
         id_alumno = resultado[0]
 
+        print("fecha: ", fecha)
+        print("legajo: ", legajo_alumno)
+        print("tipo: ", tipo_asistencia)
+        print("idalumno: ", id_alumno)
+
 
         sql = "INSERT INTO asistencia(fecha, Alumno_idAlumno, tipo_asistencia_idtipo_asistencia) VALUES (%s, %s, %s)"
         cursor.execute(sql, (fecha, id_alumno, tipo_asistencia))
