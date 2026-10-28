@@ -266,7 +266,7 @@ def insertar_asistencia():
 
         return jsonify({"resultado": "Asistencia registrada correctamente"}), 201
     except Exception as e:
-        return jsonify({"error": f"Error en el registro de asistencia: {str(e)}, {id_alumno}, {tipo_asistencia}, {fecha}"}), 500
+        return jsonify({"error": f"Error en el registro de asistencia: {str(e)}"}), 500
 
 
 @app.route("/traer_asistencias", methods=["GET"])
