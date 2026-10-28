@@ -241,86 +241,17 @@ def insertar_modalidad():
     except Exception as e:
         return jsonify({"error": f"Error al guardar modalidad: {str(e)}"}), 500
     
-
 @app.route("/nueva_asistencia", methods=["POST"])
 @cross_origin()
 def insertar_asistencia():
+
     try:
         datos = request.get_json(force=True)
-        print("DATOS RECIBIDOS:", datos)  # ← mira esto en la consola de Flask
-
         fecha = datos.get("fecha")
-        legajo_alumno = datos.get("id_alumno")
-        tipo_asistencia = datos.get("opcionSeleccionada")
-
-        print(f"Legajo recibido: '{legajo_alumno}' (tipo: {type(legajo_alumno)})")
-
-        if not all([fecha, legajo_alumno, tipo_asistencia]):
-            return jsonify({"error": "Faltan datos obligatorios"}), 400
-
-        cursor = mysql.connection.cursor()
-
-        # Probamos de varias formas
-        legajo_str = str(legajo_alumno).strip()
-        
-        # 1. Como string
-        cursor.execute("SELECT idAlumno FROM alumno WHERE legajo = %s", (legajo_str,))
-        resultado = cursor.fetchone()
-        print("Resultado como string:", resultado)
-
-        # 2. Como número (por si la columna es INT)
-        if resultado is None:
-            try:
-                legajo_num = int(legajo_str)
-                cursor.execute("SELECT idAlumno FROM alumno WHERE legajo = %s", (legajo_num,))
-                resultado = cursor.fetchone()
-                print("Resultado como int:", resultado)
-            except ValueError:
-                print("No se pudo convertir a int")
-
-        if not resultado:
-            # Mostrar qué legajos hay (para comparar)
-            cursor.execute("SELECT legajo FROM alumno LIMIT 10")
-            existentes = cursor.fetchall()
-            print("Algunos legajos existentes:", existentes)
-            
-            cursor.close()
-            return jsonify({
-                "error": "No se encontró el alumno",
-                "legajo_recibido": legajo_alumno,
-                "legajo_como_string": legajo_str,
-                "ejemplos_en_bd": [str(r[0]) for r in existentes]
-            }), 404
-
-        id_alumno = resultado[0]
-        print("idAlumno encontrado:", id_alumno)
-
-        sql = """
-            INSERT INTO asistencia (fecha, Alumno_idAlumno, tipo_asistencia_idtipo_asistencia)
-            VALUES (%s, %s, %s)
-        """
-        cursor.execute(sql, (fecha, id_alumno, tipo_asistencia))
-        mysql.connection.commit()
-        cursor.close()
-
-        return jsonify({"resultado": "Asistencia registrada correctamente"}), 201
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            "error": "Error en el registro de asistencia",
-            "detalle": str(e)
-        }), 500
-
-    '''
-    try:
-        datos = request.get_json(force=True)
-        fecha = datos["fecha"]
         #hora = datos["hora"]
         #id_preceptor = datos["id_preceptor"]
-        legajo_alumno = datos["id_alumno"]
-        tipo_asistencia = datos["opcionSeleccionada"]
+        legajo_alumno = datos.get("id_alumno")
+        tipo_asistencia = datos.get("opcionSeleccionada")
 
         cursor = mysql.connection.cursor()
         sql0= "Select idAlumno from alumno where legajo = %s"
@@ -337,7 +268,7 @@ def insertar_asistencia():
         return jsonify({"resultado": "Asistencia registrada correctamente"}), 201
     except Exception as e:
         return jsonify({"error": f"Error en el registro de asistencia: {str(e)}"}), 500
-    '''
+
 
 @app.route("/traer_asistencias", methods=["GET"])
 @cross_origin()
