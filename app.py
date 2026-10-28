@@ -264,6 +264,16 @@ def insertar_asistencia():
         print("tipo: ", tipo_asistencia, flush=True)
         print("idalumno: ", id_alumno, flush=True)
 
+        ruta = "/tmp/debug_asistencia.txt"
+        
+        with open(ruta, "a", encoding="utf-8") as f:
+            f.write(f"\n{'='*50}\n")
+            f.write(f"Fecha: {fecha}\n")
+            f.write(f"Datos recibidos: {datos}\n")
+            f.write(f"Legajo raw: {legajo_alumno}\n")
+            f.write(f"Legajo limpio: {id_alumno}\n")
+            f.write(f"tipo asistencia: {tipo_asistencia}\n")
+
 
         sql = "INSERT INTO asistencia(fecha, Alumno_idAlumno, tipo_asistencia_idtipo_asistencia) VALUES (%s, %s, %s)"
         cursor.execute(sql, (fecha, id_alumno, tipo_asistencia))
