@@ -278,9 +278,11 @@ def insertar_asistencia():
 
         cursor = mysql.connection.cursor()
         sql0= "Select idAlumno from alumno where legajo = %s"
-        cursor.execute(sql, (legajo_alumno,))
+        cursor.execute(sql0, (legajo_alumno,))
         resultado = cursor.fetchone()
         id_alumno = resultado[0]
+
+
         sql = "INSERT INTO asistencia(fecha, Alumno_idAlumno, tipo_asistencia_idtipo_asistencia) VALUES (%s, %s, %s) WHERE ;"
         cursor.execute(sql, (fecha, id_alumno, tipo_asistencia))
         mysql.connection.commit()
