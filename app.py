@@ -247,7 +247,7 @@ def insertar_asistencia():
     try:
         datos = request.get_json(force=True)
         fecha = datos["fecha"]
-        hora = datos["hora"]
+        #hora = datos["hora"]
         #id_preceptor = datos["id_preceptor"]
         legajo_alumno = datos["id_alumno"]
         tipo_asistencia = datos["opcionSeleccionada"]
