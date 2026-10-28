@@ -22,7 +22,7 @@ mysql = MySQL(app)
 
 CORS(app)
 
-
+'''
 @app.route("/nuevo_usuario", methods=["POST"])
 @cross_origin()
 def insertar_usuario():
@@ -115,7 +115,7 @@ def actualizar_usuario(id):
     response = jsonify({"resultado":"Usuario no activo"})
     return response
 
-
+'''
 #####################################################################################
 
 #PROYECTO
