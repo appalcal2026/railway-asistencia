@@ -119,30 +119,6 @@ def actualizar_usuario(id):
 #####################################################################################
 
 #PROYECTO
-from flask import Flask, request, jsonify
-from flask.helpers import make_response
-from flask_mysqldb import MySQL
-from flask_cors import CORS, cross_origin
-
-
-# para subir archivos
-import os
-#from werkzeug.utils import secure_filename
-
-
-app = Flask(__name__)
-
-import os
-
-app.config["MYSQL_HOST"] = os.environ.get("DB_HOST")
-app.config["MYSQL_USER"] = os.environ.get("DB_USER")
-app.config["MYSQL_PASSWORD"] = os.environ.get("DB_PASSWORD")
-app.config["MYSQL_DB"] = os.environ.get("DB_NAME")
-
-mysql = MySQL(app)
-
-CORS(app)
-
 
 @app.route("/nuevo_usuario", methods=["POST"])
 @cross_origin()
