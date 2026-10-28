@@ -271,7 +271,13 @@ def insertar_asistencia():
 
         os.makedirs(RUTA_VOLUME, exist_ok=True)
 
-        texto = f"Fecha: {fecha}, Datos recibidos: {datos}, Legajo: {legajo_alumno}, Legajo limpio: {id_alumno}, tipo asistencia: {tipo_asistencia}"
+        texto = (
+        f"Fecha: {fecha}, "
+        f"Datos recibidos: {datos}, "
+        f"Legajo: {legajo_alumno}, "
+        f"Legajo limpio: {id_alumno}, "
+        f"tipo asistencia: {tipo_asistencia}\n"   # ← \n importante
+    )
         
         with open(ruta_completa, "a", encoding="utf-8") as f:
             f.write(texto)
