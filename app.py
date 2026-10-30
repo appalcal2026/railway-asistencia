@@ -394,6 +394,28 @@ def nueva_notificacion():
         return jsonify({
             "error": f"Error al registrar la notificación: {str(e)}"
         }), 500
+
+
+@app.route("/probar_conexion_db", methods=["GET"])
+def probar_conexion_db():
+    try:
+        cursor = mysql.connection.cursor()
+        cursor.execute("SELECT 1")
+        resultado = cursor.fetchone()
+        cursor.close()
+
+        return jsonify({
+            "conexion": "exitosa",
+            "mensaje": "El backend pudo conectarse a MySQL correctamente"
+        }), 200
+
+    except Exception as e:
+        print("ERROR DE CONEXION MYSQL:", str(e), flush=True)
+
+        return jsonify({
+            "conexion": "fallida",
+            "mensaje": "No se pudo conectar con la base de datos"
+        }), 500
     
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
