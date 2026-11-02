@@ -441,7 +441,7 @@ def iniciar_sesion():
             return jsonify({"error": f"No se encontro el usuario con ese email y contraseña"})
         else:
             datos = {"id":resultado[0], "nombre": resultado[1], "apellido":resultado[2], "email":resultado[3], "rol":resultado[4]}
-            return jsonify()
+            return datos
 
         return jsonify({"resultado": "Preceptor registrado correctamente"}), 201
     except Exception as e:
