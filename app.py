@@ -416,6 +416,37 @@ def probar_conexion_db():
             "conexion": "fallida",
             "mensaje": "No se pudo conectar con la base de datos"
         }), 500
+
+
+@app.route("/login", methods=["POST"])
+@cross_origin()
+def iniciar_sesion():
+    try:
+        datos = request.get_json(force=True)
+        email = datos["email"] 
+        contrasena = datos["contraseña"] 
+
+        cursor = mysql.connection.cursor()
+        sql = "SELECT \
+                u.id, u.nombre, u.apellido, u.email, r.nombre_rol \
+                FROM usuario u \
+                LEFT JOIN roles r ON u.rol_id = r.idINT \
+                WHERE u.email = %s and contrasenia=%s;"
+        cursor.execute(sql, (email, contrasena))
+        #mysql.connection.commit()
+        resultado = cursor.fetchone()
+        cursor.close()
+
+        if not resultado:
+            return jsonify({"error": f"No se encontro el usuario con ese email y contraseña"})
+        else:
+            datos = {"id":resultado[0], "nombre": resultado[1], "apellido":resultado[2], "email":resultado[3], "rol":resultado[4]}
+            return jsonify()
+
+        return jsonify({"resultado": "Preceptor registrado correctamente"}), 201
+    except Exception as e:
+        return jsonify({"error": f"Error al guardar preceptor: {str(e)}"}), 500
+
     
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

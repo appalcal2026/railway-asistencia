@@ -137,3 +137,12 @@ Content-Type: application/json
 
 ### 6. OBTENER HISTORIAL DE ASISTENCIAS
 GET {{URL}}/traer_asistencias
+
+###
+POST {{URL}}/login
+Content-Type: application/json
+
+{
+   "email": "usuario06@railway.test",
+   "contraseña": "HASH_DE_PRUEBA_06"
+}
