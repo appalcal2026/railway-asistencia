@@ -496,7 +496,7 @@ def iniciar_sesion():
         rol = normalizar_rol(resultado[4])
         contrasena_guardada = resultado[5] or ""
 
-        if rol not in ["secretaria", "conduccion"]:
+        if rol not in ["ex_alumno", "secretaria", "conduccion"]:
             return jsonify({"error": "Este perfil debe ingresar con Google."}), 403
 
         contraseña_valida = False
