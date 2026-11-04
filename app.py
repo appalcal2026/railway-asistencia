@@ -471,7 +471,7 @@ def iniciar_sesion():
     try:
         datos = request.get_json(force=True) or {}
         email = datos.get("email", "").strip().lower()
-        contrasena = datos.get("contraseña", "")
+        contrasena = datos.get("password", "")
 
         if not email or not contrasena:
             return jsonify({"error": "Tenés que ingresar correo y contraseña."}), 400
@@ -573,10 +573,13 @@ def iniciar_sesion_google():
         if rol not in ["ex_alumno", "secretaria", "conduccion"]:
             return jsonify({"error": "Tu perfil no tiene permiso para ingresar."}), 403
 
-        return jsonify({
-            "mensaje": "Inicio de sesión con Google exitoso.",
-            "usuario": respuesta_usuario(resultado)
-        }), 200
+        usuario = respuesta_usuario(resultado)
+        print("LOGIN GOOGLE EXITOSO:", usuario, flush=True)
+
+        return jsonify ({
+            "mensaje": "Inicio de Google exitoso.",
+            "usuario": usuario
+        }), 200 
 
     except ValueError:
         return jsonify({"error": "La credencial de Google no es válida."}), 401
