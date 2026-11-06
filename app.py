@@ -363,6 +363,34 @@ def insertar_alumno():
         return jsonify({"error": f"Error al guardar alumno: {str(e)}"}), 500
 
 
+
+@app.route("/api/alumnos", methods=["GET"])
+@cross_origin()
+def listar_alumnos():
+    try:
+        sql = "SELECT idAlumno, nombre, apellido FROM Alumno"
+        cursor = mysql.connection.cursor()
+        cursor.execute(sql)
+        resultado = cursor.fetchall()
+        cursor.close()
+
+        if not resultado:
+            return jsonify([]), 200
+
+        alumnos = []
+        for row in resultado:
+            alumnos.append({
+                "id": row[0],
+                "nombre": row[1],
+                "apellido": row[2]
+            })
+
+        return jsonify(alumnos), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Error al obtener alumnos: {str(e)}"}), 500
+    
+
 @app.route('/nueva_notificacion', methods=['POST'])
 def nueva_notificacion():
     data = request.get_json()
