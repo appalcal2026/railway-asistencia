@@ -363,6 +363,35 @@ def insertar_alumno():
         return jsonify({"error": f"Error al guardar alumno: {str(e)}"}), 500
 
 
+
+@app.route("/api/alumnos", methods=["GET"])
+@cross_origin()
+def listar_alumnos():
+    try:
+        # Cambiamos 'Alumno' por 'alumno' (en minúscula)
+        sql = "SELECT idAlumno, nombre, apellido FROM alumno"
+        cursor = mysql.connection.cursor()
+        cursor.execute(sql)
+        resultado = cursor.fetchall()
+        cursor.close()
+
+        if not resultado:
+            return jsonify([]), 200
+
+        alumnos = []
+        for row in resultado:
+            alumnos.append({
+                "id": row[0],
+                "nombre": row[1],
+                "apellido": row[2]
+            })
+
+        return jsonify(alumnos), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Error al obtener alumnos: {str(e)}"}), 500
+    
+
 @app.route('/nueva_notificacion', methods=['POST'])
 def nueva_notificacion():
     data = request.get_json()
@@ -418,177 +447,34 @@ def probar_conexion_db():
         }), 500
 
 
-# ==========================================
-# AUTENTICACIÓN INSTITUCIONAL
-# ==========================================
-
-import unicodedata
-from werkzeug.security import generate_password_hash, check_password_hash
-from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
-
-GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
-DOMINIO_INSTITUCIONAL = "@sagradoalcal.edu.ar"
-
-
-def normalizar_rol(rol):
-    if not rol:
-        return ""
-
-    rol = unicodedata.normalize("NFD", rol)
-    rol = "".join(
-        caracter for caracter in rol
-        if unicodedata.category(caracter) != "Mn"
-    )
-    rol = rol.strip().lower().replace(" ", "_")
-
-    equivalencias = {
-        "exalumno": "ex_alumno",
-        "ex_alumnos": "ex_alumno",
-        "antiguo_alumno": "ex_alumno",
-        "director": "conduccion",
-        "coordinador": "conduccion",
-        "secretaria": "secretaria"
-    }
-    return equivalencias.get(rol, rol)
-
-
-def respuesta_usuario(resultado):
-    return {
-        "id": resultado[0],
-        "nombre": resultado[1],
-        "apellido": resultado[2],
-        "email": resultado[3],
-        "rol": normalizar_rol(resultado[4])
-    }
-
-
-# Login manual: únicamente Secretaría y Conducción
 @app.route("/login", methods=["POST"])
 @cross_origin()
 def iniciar_sesion():
-    cursor = None
     try:
-        datos = request.get_json(force=True) or {}
-        email = datos.get("email", "").strip().lower()
-        contrasena = datos.get("password", "")
-
-        if not email or not contrasena:
-            return jsonify({"error": "Tenés que ingresar correo y contraseña."}), 400
-
-        if not email.endswith(DOMINIO_INSTITUCIONAL):
-            return jsonify({"error": "Solo se permiten correos institucionales."}), 403
+        datos = request.get_json(force=True)
+        email = datos["email"] 
+        contrasena = datos["contraseña"] 
 
         cursor = mysql.connection.cursor()
-        sql = """
-            SELECT u.id, u.nombre, u.apellido, u.email, r.nombre_rol, u.contrasenia
-            FROM usuario u
-            LEFT JOIN roles r ON u.rol_id = r.idINT
-            WHERE LOWER(u.email) = %s
-            LIMIT 1
-        """
-        cursor.execute(sql, (email,))
+        sql = "SELECT \
+                u.id, u.nombre, u.apellido, u.email, r.nombre_rol \
+                FROM usuario u \
+                LEFT JOIN roles r ON u.rol_id = r.idINT \
+                WHERE u.email = %s and contrasenia=%s;"
+        cursor.execute(sql, (email, contrasena))
+        #mysql.connection.commit()
         resultado = cursor.fetchone()
+        cursor.close()
 
         if not resultado:
-            return jsonify({"error": "Correo o contraseña incorrectos."}), 401
+            return jsonify({"error": f"No se encontro el usuario con ese email y contraseña"})
+        else:
+            datos = {"id":resultado[0], "nombre": resultado[1], "apellido":resultado[2], "email":resultado[3], "rol":resultado[4]}
+            return datos
 
-        rol = normalizar_rol(resultado[4])
-        contrasena_guardada = resultado[5] or ""
-
-        if rol not in ["ex_alumno", "secretaria", "conduccion"]:
-            return jsonify({"error": "Este perfil debe ingresar con Google."}), 403
-
-        contraseña_valida = False
-        if contrasena_guardada.startswith(("scrypt:", "pbkdf2:")):
-            contraseña_valida = check_password_hash(contrasena_guardada, contrasena)
-        elif contrasena_guardada:
-            # Compatibilidad temporal con contraseñas antiguas en texto plano.
-            contraseña_valida = contrasena_guardada == contrasena
-            if contraseña_valida:
-                nuevo_hash = generate_password_hash(contrasena)
-                cursor.execute(
-                    "UPDATE usuario SET contrasenia = %s WHERE id = %s",
-                    (nuevo_hash, resultado[0])
-                )
-                mysql.connection.commit()
-
-        if not contraseña_valida:
-            return jsonify({"error": "Correo o contraseña incorrectos."}), 401
-
-        return jsonify({
-            "mensaje": "Inicio de sesión exitoso.",
-            "usuario": respuesta_usuario(resultado)
-        }), 200
-
+        return jsonify({"resultado": "Preceptor registrado correctamente"}), 201
     except Exception as e:
-        print("ERROR LOGIN:", str(e), flush=True)
-        return jsonify({"error": "Ocurrió un error al iniciar sesión."}), 500
-    finally:
-        if cursor is not None:
-            cursor.close()
-
-
-# Login con Google: Exalumnos, Secretaría y Conducción
-@app.route("/login/google", methods=["POST"])
-@cross_origin()
-def iniciar_sesion_google():
-    cursor = None
-    try:
-        datos = request.get_json(force=True) or {}
-        token = datos.get("credential")
-
-        if not token:
-            return jsonify({"error": "No se recibió la credencial de Google."}), 400
-
-        if not GOOGLE_CLIENT_ID:
-            return jsonify({"error": "Falta configurar GOOGLE_CLIENT_ID en Railway."}), 500
-
-        informacion_google = id_token.verify_oauth2_token(
-            token, google_requests.Request(), GOOGLE_CLIENT_ID
-        )
-        email_google = informacion_google.get("email", "").lower()
-
-        if not informacion_google.get("email_verified", False):
-            return jsonify({"error": "Google no confirmó el correo electrónico."}), 403
-
-        if not email_google.endswith(DOMINIO_INSTITUCIONAL):
-            return jsonify({"error": "Tenés que ingresar con tu correo institucional."}), 403
-
-        cursor = mysql.connection.cursor()
-        sql = """
-            SELECT u.id, u.nombre, u.apellido, u.email, r.nombre_rol
-            FROM usuario u
-            LEFT JOIN roles r ON u.rol_id = r.idINT
-            WHERE LOWER(COALESCE(NULLIF(u.google_email, ''), u.email)) = %s
-            LIMIT 1
-        """
-        cursor.execute(sql, (email_google,))
-        resultado = cursor.fetchone()
-
-        if not resultado:
-            return jsonify({"error": "Tu correo no está habilitado en el sistema."}), 403
-
-        rol = normalizar_rol(resultado[4])
-        if rol not in ["ex_alumno", "secretaria", "conduccion"]:
-            return jsonify({"error": "Tu perfil no tiene permiso para ingresar."}), 403
-
-        usuario = respuesta_usuario(resultado)
-        print("LOGIN GOOGLE EXITOSO:", usuario, flush=True)
-
-        return jsonify ({
-            "mensaje": "Inicio de Google exitoso.",
-            "usuario": usuario
-        }), 200 
-
-    except ValueError:
-        return jsonify({"error": "La credencial de Google no es válida."}), 401
-    except Exception as e:
-        print("ERROR LOGIN GOOGLE:", str(e), flush=True)
-        return jsonify({"error": "No se pudo iniciar sesión con Google."}), 500
-    finally:
-        if cursor is not None:
-            cursor.close()
+        return jsonify({"error": f"Error al guardar preceptor: {str(e)}"}), 500
 
     
 if __name__ == "__main__":
