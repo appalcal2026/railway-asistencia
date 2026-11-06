@@ -368,7 +368,8 @@ def insertar_alumno():
 @cross_origin()
 def listar_alumnos():
     try:
-        sql = "SELECT idAlumno, nombre, apellido FROM Alumno"
+        # Cambiamos 'Alumno' por 'alumno' (en minúscula)
+        sql = "SELECT idAlumno, nombre, apellido FROM alumno"
         cursor = mysql.connection.cursor()
         cursor.execute(sql)
         resultado = cursor.fetchall()
