@@ -11,8 +11,8 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 import os
 #from werkzeug.utils import secure_filename
 
-
-app = Flask(__name__)
+import mysql.connector
+import os
 
 def get_db_connection():
     return mysql.connector.connect(
@@ -20,8 +20,10 @@ def get_db_connection():
         user=os.getenv('MYSQLUSER'),
         password=os.getenv('MYSQLPASSWORD'),
         database=os.getenv('MYSQLDATABASE'),
-        port=os.getenv('MYSQLPORT')
+        port=int(os.getenv('MYSQLPORT', 3306))
     )
+
+app = Flask(__name__)
 
 import os
 
@@ -611,14 +613,14 @@ def guardar_perfil():
     email = datos.get('email')
     telefono = datos.get('telefono')
     es_exalumno = 1 if datos.get('es_exalumno') else 0
-    orientacion = datos.get('orientacion') # 'Técnica' o 'Economía'
+    orientacion = datos.get('orientacion')
 
     if not nombre or not apellido or not email or not orientacion:
         return jsonify({'error': 'Faltan campos obligatorios'}), 400
 
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        # Usar la conexión existente de Flask-MySQLdb
+        cursor = mysql.connection.cursor()
 
         sql = """
             INSERT INTO perfil (nombre, apellido, email, telefono, es_exalumno, orientacion)
@@ -627,10 +629,8 @@ def guardar_perfil():
         valores = (nombre, apellido, email, telefono, es_exalumno, orientacion)
 
         cursor.execute(sql, valores)
-        conn.commit()
-
+        mysql.connection.commit()
         cursor.close()
-        conn.close()
 
         return jsonify({'mensaje': 'Perfil guardado con éxito'}), 201
 
