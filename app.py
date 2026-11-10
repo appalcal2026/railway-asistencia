@@ -26,6 +26,8 @@ def get_db_connection():
 
 app = Flask(__name__)
 
+app.config['JSON_AS_ASCII'] = False
+
 import os
 
 app.config["MYSQL_HOST"] = os.environ.get("DB_HOST")
