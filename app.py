@@ -11,6 +11,7 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 import os
 #from werkzeug.utils import secure_filename
 
+
 import mysql.connector
 import os
 
@@ -606,7 +607,7 @@ def login_google():
 
 @app.route('/guardar-perfil', methods=['POST'])
 def guardar_perfil():
-    datos = request.get_json()
+    datos = request.get_json() or {}
 
     nombre = datos.get('nombre')
     apellido = datos.get('apellido')
@@ -618,9 +619,9 @@ def guardar_perfil():
     if not nombre or not apellido or not email or not orientacion:
         return jsonify({'error': 'Faltan campos obligatorios'}), 400
 
+    cur = None
     try:
-        # Usar la conexión existente de Flask-MySQLdb
-        cursor = mysql.connection.cursor()
+        cur = mysql.connection.cursor()
 
         sql = """
             INSERT INTO perfil (nombre, apellido, email, telefono, es_exalumno, orientacion)
@@ -628,13 +629,16 @@ def guardar_perfil():
         """
         valores = (nombre, apellido, email, telefono, es_exalumno, orientacion)
 
-        cursor.execute(sql, valores)
+        cur.execute(sql, valores)
         mysql.connection.commit()
-        cursor.close()
+        cur.close()
 
         return jsonify({'mensaje': 'Perfil guardado con éxito'}), 201
 
     except Exception as e:
+        if cur:
+            cur.close()
+        print("Error en guardar_perfil:", str(e))
         return jsonify({'error': str(e)}), 500
 
     
