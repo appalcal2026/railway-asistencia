@@ -14,6 +14,14 @@ import os
 
 app = Flask(__name__)
 
+def get_db_connection():
+    return mysql.connector.connect(
+        host=os.getenv('MYSQLHOST'),
+        user=os.getenv('MYSQLUSER'),
+        password=os.getenv('MYSQLPASSWORD'),
+        database=os.getenv('MYSQLDATABASE'),
+        port=os.getenv('MYSQLPORT')
+    )
 
 import os
 
@@ -593,6 +601,41 @@ def login_google():
             "error": "No se pudo verificar la cuenta de Google."
         }), 500
 
+
+@app.route('/guardar-perfil', methods=['POST'])
+def guardar_perfil():
+    datos = request.get_json()
+
+    nombre = datos.get('nombre')
+    apellido = datos.get('apellido')
+    email = datos.get('email')
+    telefono = datos.get('telefono')
+    es_exalumno = 1 if datos.get('es_exalumno') else 0
+    orientacion = datos.get('orientacion') # 'Técnica' o 'Economía'
+
+    if not nombre or not apellido or not email or not orientacion:
+        return jsonify({'error': 'Faltan campos obligatorios'}), 400
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        sql = """
+            INSERT INTO perfil (nombre, apellido, email, telefono, es_exalumno, orientacion)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        valores = (nombre, apellido, email, telefono, es_exalumno, orientacion)
+
+        cursor.execute(sql, valores)
+        conn.commit()
+
+        cursor.close()
+        conn.close()
+
+        return jsonify({'mensaje': 'Perfil guardado con éxito'}), 201
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
     
 if __name__ == "__main__":

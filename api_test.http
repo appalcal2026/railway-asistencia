@@ -146,3 +146,17 @@ Content-Type: application/json
    "email": "usuario03@railway.test",
    "contraseña": "HASH_DE_PRUEBA_03"
 }
+
+
+###
+POST {{URL}}/guardar-perfil
+Content-Type: application/json
+
+{
+  "nombre": "Juan",
+  "apellido": "Pérez",
+  "email": "juan.perez@example.com",
+  "telefono": "1122334405",
+  "es_exalumno": true,
+  "orientacion": "Técnica"
+}
