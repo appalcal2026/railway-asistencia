@@ -38,17 +38,56 @@ mysql = MySQL(app)
 
 CORS(
     app,
-    resources={
-        r"/*": {
-            "origins": "*"
-        }
-    },
-    allow_headers=["Content-Type"],
-    methods=["GET", "POST", "OPTIONS"]
+    resources={r"/*": {"origins": "*"}},
+    allow_headers=["Content-Type", "Authorization"],
+    methods=["GET", "POST", "PUT", "OPTIONS"]
 )
 
 
 DOMINIO_INSTITUCIONAL = "@sagradoalcal.edu.ar"
+
+# ==========================================
+# SESIONES DE USUARIO
+# ==========================================
+
+SECRET_KEY = os.environ.get("SECRET_KEY")
+
+def crear_token_sesion(user_id):
+    if not SECRET_KEY:
+        raise RuntimeError("Falta configurar SECRET_KEY en Railway.")
+
+    serializer = URLSafeTimedSerializer(SECRET_KEY)
+
+    return serializer.dumps(
+        {"user_id": user_id},
+        salt="sesion-colegio"
+    )
+
+
+def obtener_usuario_del_token():
+    encabezado = request.headers.get("Authorization", "")
+
+    if not encabezado.startswith("Bearer "):
+        return None
+
+    token = encabezado.replace("Bearer ", "", 1).strip()
+
+    if not token or not SECRET_KEY:
+        return None
+
+    try:
+        serializer = URLSafeTimedSerializer(SECRET_KEY)
+
+        datos = serializer.loads(
+            token,
+            salt="sesion-colegio",
+            max_age=43200  # 12 horas
+        )
+
+        return datos.get("user_id")
+
+    except (BadSignature, SignatureExpired):
+        return None
 
 def obtener_usuario_por_email(email):
     cursor = mysql.connection.cursor()
@@ -490,9 +529,12 @@ def iniciar_sesion():
                 "error": "Tu cuenta no tiene un rol habilitado."
             }), 403
 
+        token_sesion = crear_token_sesion(datos_usuario["id"])
+
         return jsonify({
-            "mensaje": "Inicio de sesión exitoso.",
-            "usuario": datos_usuario
+        "mensaje": "Inicio de sesión exitoso.",
+        "usuario": datos_usuario,
+        "token": token_sesion
         }), 200
 
     except Exception as e:
@@ -501,6 +543,7 @@ def iniciar_sesion():
         return jsonify({
             "error": "Error interno al iniciar sesión."
         }), 500
+
 
 @app.route("/login/google", methods=["POST", "OPTIONS"])
 def login_google():
@@ -583,12 +626,15 @@ def login_google():
                 "error": "Tu cuenta no tiene un rol habilitado."
             }), 403
 
-        return jsonify({
-            "mensaje": "Inicio de sesión con Google exitoso.",
-            "usuario": datos_usuario,
-            "picture": informacion_google.get("picture")
-        }), 200
+        token_sesion = crear_token_sesion(datos_usuario["id"])
 
+        return jsonify({
+        "mensaje": "Inicio de sesión con Google exitoso.",
+        "usuario": datos_usuario,
+        "picture": informacion_google.get("picture"),
+        "token": token_sesion
+        }), 200
+    
     except ValueError as e:
         print("ERROR TOKEN GOOGLE:", str(e), flush=True)
 
@@ -604,41 +650,192 @@ def login_google():
         }), 500
 
 
-@app.route('/guardar-perfil', methods=['POST'])
-def guardar_perfil():
-    datos = request.get_json() or {}
+# ==========================================
+# PERFIL DEL EXALUMNO
+# ==========================================
 
-    nombre = datos.get('nombre')
-    apellido = datos.get('apellido')
-    email = datos.get('email')
-    telefono = datos.get('telefono')
-    es_exalumno = 1 if datos.get('es_exalumno') else 0
-    orientacion = datos.get('orientacion')
+@app.route("/perfil", methods=["GET", "OPTIONS"])
+def obtener_perfil():
 
-    if not nombre or not apellido or not email or not orientacion:
-        return jsonify({'error': 'Faltan campos obligatorios'}), 400
+    if request.method == "OPTIONS":
+        return "", 200
 
-    cur = None
+    user_id = obtener_usuario_del_token()
+
+    if not user_id:
+        return jsonify({"error": "La sesión no es válida o venció."}), 401
+
+    cursor = None
+
     try:
-        cur = mysql.connection.cursor()
+        cursor = mysql.connection.cursor()
 
         sql = """
-            INSERT INTO perfil (nombre, apellido, email, telefono, es_exalumno, orientacion)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            SELECT
+                u.id,
+                u.nombre,
+                u.apellido,
+                u.email,
+                u.telefono,
+                p.idperfil,
+                p.es_exalumno,
+                p.orientacion,
+                r.nombre_rol
+            FROM usuario u
+            LEFT JOIN perfil p ON p.idperfil = u.perfil_idperfil
+            LEFT JOIN roles r ON r.idINT = u.rol_id
+            WHERE u.id = %s
+            LIMIT 1
         """
-        valores = (nombre, apellido, email, telefono, es_exalumno, orientacion)
 
-        cur.execute(sql, valores)
-        mysql.connection.commit()
-        cur.close()
+        cursor.execute(sql, (user_id,))
+        usuario = cursor.fetchone()
 
-        return jsonify({'mensaje': 'Perfil guardado con éxito'}), 201
+        if not usuario:
+            return jsonify({"error": "No se encontró el usuario."}), 404
+
+        if validar_rol(usuario[8]) != "ex_alumno":
+            return jsonify({"error": "Esta sección es exclusiva para exalumnos."}), 403
+
+        if usuario[5] is None:
+            return jsonify({
+                "error": "El usuario todavía no tiene un perfil asociado."
+            }), 409
+
+        return jsonify({
+            "usuario": {
+                "id": usuario[0],
+                "nombre": usuario[1],
+                "apellido": usuario[2],
+                "email": usuario[3],
+                "telefono": usuario[4] or "",
+                "es_exalumno": bool(usuario[6]),
+                "orientacion": usuario[7] or ""
+            }
+        }), 200
 
     except Exception as e:
-        if cur:
-            cur.close()
-        print("Error en guardar_perfil:", str(e))
-        return jsonify({'error': str(e)}), 500
+        print("ERROR AL OBTENER PERFIL:", str(e), flush=True)
+        return jsonify({"error": "No se pudo cargar el perfil."}), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+
+@app.route("/perfil", methods=["PUT", "OPTIONS"])
+def actualizar_perfil():
+
+    if request.method == "OPTIONS":
+        return "", 200
+
+    user_id = obtener_usuario_del_token()
+
+    if not user_id:
+        return jsonify({"error": "La sesión no es válida o venció."}), 401
+
+    datos = request.get_json(silent=True) or {}
+
+    telefono = str(datos.get("telefono") or "").strip()
+    es_exalumno = datos.get("es_exalumno")
+    orientacion = datos.get("orientacion")
+
+    if len(telefono) > 20:
+        return jsonify({
+            "error": "El teléfono no puede superar los 20 caracteres."
+        }), 400
+
+    if not isinstance(es_exalumno, bool):
+        return jsonify({
+            "error": "Tenés que confirmar si sos exalumno."
+        }), 400
+
+    if es_exalumno:
+        if orientacion not in ["Técnica", "Economía"]:
+            return jsonify({
+                "error": "Seleccioná Técnica o Economía como orientación."
+            }), 400
+    else:
+        orientacion = None
+
+    cursor = None
+
+    try:
+        cursor = mysql.connection.cursor()
+
+        # Comprobar que el usuario exista, sea exalumno
+        # y tenga un perfil asociado.
+        sql_usuario = """
+            SELECT
+                u.perfil_idperfil,
+                r.nombre_rol
+            FROM usuario u
+            LEFT JOIN roles r ON r.idINT = u.rol_id
+            WHERE u.id = %s
+            LIMIT 1
+        """
+
+        cursor.execute(sql_usuario, (user_id,))
+        resultado = cursor.fetchone()
+
+        if not resultado:
+            return jsonify({"error": "No se encontró el usuario."}), 404
+
+        perfil_id = resultado[0]
+        rol = validar_rol(resultado[1])
+
+        if rol != "ex_alumno":
+            return jsonify({
+                "error": "No tenés permiso para modificar este perfil."
+            }), 403
+
+        if perfil_id is None:
+            return jsonify({
+                "error": "El usuario no tiene un perfil asociado."
+            }), 409
+
+        # Actualizar el teléfono en usuario y los datos
+        # propios del exalumno en perfil.
+        cursor.execute(
+            """
+            UPDATE usuario
+            SET telefono = %s
+            WHERE id = %s
+            """,
+            (telefono or None, user_id)
+        )
+
+        cursor.execute(
+            """
+            UPDATE perfil
+            SET es_exalumno = %s,
+                orientacion = %s
+            WHERE idperfil = %s
+            """,
+            (
+                1 if es_exalumno else 0,
+                orientacion,
+                perfil_id
+            )
+        )
+
+        mysql.connection.commit()
+
+        return jsonify({
+            "mensaje": "Perfil actualizado correctamente."
+        }), 200
+
+    except Exception as e:
+        mysql.connection.rollback()
+        print("ERROR AL ACTUALIZAR PERFIL:", str(e), flush=True)
+
+        return jsonify({
+            "error": "No se pudo guardar el perfil."
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
 
     
 if __name__ == "__main__":
