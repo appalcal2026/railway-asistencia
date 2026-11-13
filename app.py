@@ -11,7 +11,6 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 import os
 #from werkzeug.utils import secure_filename
 
-
 import mysql.connector
 import os
 
