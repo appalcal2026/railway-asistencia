@@ -1083,10 +1083,12 @@ def obtener_materias_exalumno(usuario_id):
             })
 
         cursor.execute("""
-            SELECT materias_idmaterias
-            FROM materias_pendientes
-            WHERE ex_alumno_idex_alumno = %s
-        """, (id_exalumno,))
+            SELECT mp.materias_idmaterias
+            FROM materias_pendientes mp
+            INNER JOIN materias m ON m.idMaterias = mp.materias_idmaterias
+            WHERE mp.ex_alumno_idex_alumno = %s
+              AND LOWER(TRIM(m.orientacion)) = LOWER(TRIM(%s))
+        """, (id_exalumno, orientacion))
 
         filas_pendientes = cursor.fetchall()
 
@@ -1176,11 +1178,6 @@ def guardar_materias_pendientes():
 
         ids_permitidos = {int(fila[0]) for fila in cursor.fetchall()}
 
-        if not set(materias_ids).issubset(ids_permitidos):
-            return jsonify({
-                "error": "Hay materias que no corresponden a la orientación."
-            }), 400
-
         cursor.execute("""
             SELECT materias_idmaterias
             FROM materias_pendientes
@@ -1192,6 +1189,11 @@ def guardar_materias_pendientes():
         }
 
         nuevas = set(materias_ids) - ids_existentes
+
+        if not nuevas.issubset(ids_permitidos):
+            return jsonify({
+                "error": "Hay materias que no corresponden a la orientación."
+            }), 400
 
         for materia_id in nuevas:
             cursor.execute("""
