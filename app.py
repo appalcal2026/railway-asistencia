@@ -1225,6 +1225,234 @@ def guardar_materias_pendientes():
         if cursor:
             cursor.close()
 
+# ============================================================
+# INSCRIPCIÓN A MESAS DE EXAMEN - EXALUMNOS
+# ============================================================
+
+@app.route("/api/exalumno/mesas-disponibles", methods=["GET", "OPTIONS"])
+def obtener_mesas_exalumno():
+    if request.method == "OPTIONS":
+        return "", 200
+
+    user_id = obtener_usuario_del_token()
+    if not user_id:
+        return jsonify({"error": "La sesión no es válida o venció."}), 401
+
+    cursor = None
+    try:
+        cursor = mysql.connection.cursor()
+
+        exalumno = obtener_datos_exalumno(cursor, user_id)
+        if not exalumno:
+            return jsonify({
+                "error": "No se encontró un perfil de exalumno confirmado con orientación."
+            }), 404
+
+        # exalumno: (u.id, u.nombre, u.apellido, u.email, e.idex_alumno, e.alumno_idAlumno, p.orientacion)
+        id_exalumno = exalumno[4]
+        orientacion = exalumno[6]
+
+        # Traer las materias pendientes cargadas por secretaría para este exalumno
+        cursor.execute("""
+            SELECT
+                m.idMaterias,
+                m.Materiascol,
+                m.curso,
+                m.orientacion,
+                mp.estado AS estado_pendiente,
+                im.idinscripcion_mesa,
+                im.fecha_inscripcion,
+                im.estado AS estado_inscripcion
+            FROM materias_pendientes mp
+            INNER JOIN materias m
+                ON m.idMaterias = mp.materias_idmaterias
+            LEFT JOIN inscripcion_mesa im
+                ON im.materias_idMaterias = m.idMaterias
+               AND im.ex_alumno_idex_alumno = mp.ex_alumno_idex_alumno
+            WHERE mp.ex_alumno_idex_alumno = %s
+              AND LOWER(TRIM(m.orientacion)) = LOWER(TRIM(%s))
+            ORDER BY
+                CAST(LEFT(m.curso, 1) AS UNSIGNED),
+                m.curso,
+                m.idMaterias
+        """, (id_exalumno, orientacion))
+
+        filas = cursor.fetchall()
+        materias = []
+
+        for fila in filas:
+            fecha_ins = (
+                fila[6].strftime("%Y-%m-%d %H:%M:%S")
+                if hasattr(fila[6], "strftime")
+                else (str(fila[6]) if fila[6] else None)
+            )
+            materias.append({
+                "idMaterias": fila[0],
+                "nombre": fila[1],
+                "curso": fila[2],
+                "orientacion": fila[3],
+                "estado_pendiente": fila[4],
+                "idinscripcion_mesa": fila[5],
+                "fecha_inscripcion": fecha_ins,
+                "estado_inscripcion": fila[7]
+            })
+
+        return jsonify({
+            "exalumno": {
+                "usuario_id": exalumno[0],
+                "idex_alumno": exalumno[4],
+                "nombre": exalumno[1],
+                "apellido": exalumno[2],
+                "email": exalumno[3],
+                "orientacion": exalumno[6]
+            },
+            "materias": materias
+        }), 200
+
+    except Exception as e:
+        print("ERROR OBTENIENDO MESAS EXALUMNO:", str(e), flush=True)
+        return jsonify({"error": "No se pudieron cargar las materias pendientes."}), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+
+@app.route("/api/exalumno/inscribir-mesa", methods=["POST", "OPTIONS"])
+def inscribir_mesa_exalumno():
+    if request.method == "OPTIONS":
+        return "", 200
+
+    user_id = obtener_usuario_del_token()
+    if not user_id:
+        return jsonify({"error": "La sesión no es válida o venció."}), 401
+
+    datos = request.get_json(silent=True) or {}
+    materias_ids = datos.get("materias_ids")
+
+    if not isinstance(materias_ids, list) or len(materias_ids) == 0:
+        return jsonify({"error": "Seleccioná al menos una materia para inscribirte."}), 400
+
+    try:
+        materias_ids = list(set(int(x) for x in materias_ids))
+    except (ValueError, TypeError):
+        return jsonify({"error": "Hay identificadores de materias inválidos."}), 400
+
+    cursor = None
+    try:
+        cursor = mysql.connection.cursor()
+
+        exalumno = obtener_datos_exalumno(cursor, user_id)
+        if not exalumno:
+            return jsonify({"error": "No se encontró el perfil del exalumno."}), 404
+
+        id_exalumno = exalumno[4]
+        orientacion = exalumno[6]
+
+        # Verificar que las materias elegidas estén en sus materias_pendientes y en su orientación
+        cursor.execute("""
+            SELECT mp.materias_idmaterias
+            FROM materias_pendientes mp
+            INNER JOIN materias m ON m.idMaterias = mp.materias_idmaterias
+            WHERE mp.ex_alumno_idex_alumno = %s
+              AND LOWER(TRIM(m.orientacion)) = LOWER(TRIM(%s))
+        """, (id_exalumno, orientacion))
+
+        ids_habilitados = {int(fila[0]) for fila in cursor.fetchall()}
+
+        if not set(materias_ids).issubset(ids_habilitados):
+            return jsonify({
+                "error": "Alguna de las materias seleccionadas no figura como pendiente en tu orientación."
+            }), 400
+
+        # Verificar cuáles ya están inscriptas en inscripcion_mesa
+        cursor.execute("""
+            SELECT materias_idMaterias
+            FROM inscripcion_mesa
+            WHERE ex_alumno_idex_alumno = %s
+        """, (id_exalumno,))
+
+        ya_inscriptas = {int(fila[0]) for fila in cursor.fetchall()}
+        nuevas = set(materias_ids) - ya_inscriptas
+
+        for materia_id in nuevas:
+            cursor.execute("""
+                INSERT INTO inscripcion_mesa (
+                    fecha_inscripcion,
+                    estado,
+                    materias_idMaterias,
+                    ex_alumno_idex_alumno
+                )
+                VALUES (NOW(), 'Pendiente', %s, %s)
+            """, (materia_id, id_exalumno))
+
+        mysql.connection.commit()
+
+        return jsonify({
+            "mensaje": "Inscripción registrada correctamente.",
+            "cantidad_nuevas": len(nuevas)
+        }), 201
+
+    except Exception as e:
+        mysql.connection.rollback()
+        print("ERROR INSCRIBIENDO EN MESA:", str(e), flush=True)
+        return jsonify({"error": "No se pudo registrar la inscripción."}), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+
+@app.route("/api/exalumno/baja-mesa", methods=["POST", "OPTIONS"])
+def baja_mesa_exalumno():
+    if request.method == "OPTIONS":
+        return "", 200
+
+    user_id = obtener_usuario_del_token()
+    if not user_id:
+        return jsonify({"error": "La sesión no es válida o venció."}), 401
+
+    datos = request.get_json(silent=True) or {}
+    materias_ids = datos.get("materias_ids")
+
+    if not isinstance(materias_ids, list) or len(materias_ids) == 0:
+        return jsonify({"error": "No se indicaron materias para dar de baja."}), 400
+
+    try:
+        materias_ids = list(set(int(x) for x in materias_ids))
+    except (ValueError, TypeError):
+        return jsonify({"error": "Identificadores inválidos."}), 400
+
+    cursor = None
+    try:
+        cursor = mysql.connection.cursor()
+
+        exalumno = obtener_datos_exalumno(cursor, user_id)
+        if not exalumno:
+            return jsonify({"error": "No se encontró el perfil del exalumno."}), 404
+
+        id_exalumno = exalumno[4]
+        placeholders = ", ".join(["%s"] * len(materias_ids))
+
+        cursor.execute(f"""
+            DELETE FROM inscripcion_mesa
+            WHERE ex_alumno_idex_alumno = %s
+              AND materias_idMaterias IN ({placeholders})
+        """, [id_exalumno] + materias_ids)
+
+        mysql.connection.commit()
+
+        return jsonify({"mensaje": "Inscripción dada de baja correctamente."}), 200
+
+    except Exception as e:
+        mysql.connection.rollback()
+        print("ERROR DANDO DE BAJA MESA:", str(e), flush=True)
+        return jsonify({"error": "No se pudo dar de baja la inscripción."}), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
