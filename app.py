@@ -837,7 +837,393 @@ def actualizar_perfil():
         if cursor:
             cursor.close()
 
-    
+# ============================================================
+# CARGA DE MATERIAS PENDIENTES - SECRETARIA Y CONDUCCION
+# ============================================================
+
+def autorizar_personal_administrativo():
+    """
+    Comprueba el token de sesión y verifica que el usuario
+    tenga rol Secretaría o Conducción.
+    """
+    user_id = obtener_usuario_del_token()
+
+    if not user_id:
+        return None, None, (
+            jsonify({"error": "La sesión no es válida o venció."}),
+            401
+        )
+
+    cursor = None
+
+    try:
+        cursor = mysql.connection.cursor()
+
+        cursor.execute("""
+            SELECT r.nombre_rol
+            FROM usuario u
+            LEFT JOIN roles r ON r.idINT = u.rol_id
+            WHERE u.id = %s
+            LIMIT 1
+        """, (user_id,))
+
+        resultado = cursor.fetchone()
+
+        if not resultado:
+            return None, None, (
+                jsonify({"error": "No se encontró el usuario."}),
+                401
+            )
+
+        rol = validar_rol(resultado[0])
+
+        if rol not in ("secretaria", "conduccion"):
+            return None, None, (
+                jsonify({"error": "No tenés permiso para realizar esta operación."}),
+                403
+            )
+
+        return user_id, rol, None
+
+    except Exception as e:
+        print("ERROR AL VALIDAR PERSONAL:", str(e), flush=True)
+
+        return None, None, (
+            jsonify({"error": "No se pudo validar el permiso de acceso."}),
+            500
+        )
+
+    finally:
+        if cursor:
+            cursor.close()
+
+
+def obtener_datos_exalumno(cursor, usuario_id):
+    """
+    Relaciona:
+    usuario.id
+       -> usuario.perfil_idperfil
+       -> perfil.idperfil
+       -> ex_alumno.perfil_idperfil
+    """
+    cursor.execute("""
+        SELECT
+            u.id,
+            u.nombre,
+            u.apellido,
+            u.email,
+            e.idex_alumno,
+            e.alumno_idAlumno,
+            p.orientacion
+        FROM usuario u
+        INNER JOIN perfil p
+            ON p.idperfil = u.perfil_idperfil
+        INNER JOIN ex_alumno e
+            ON e.perfil_idperfil = p.idperfil
+        LEFT JOIN roles r
+            ON r.idINT = u.rol_id
+        WHERE u.id = %s
+          AND p.es_exalumno = 1
+          AND LOWER(REPLACE(r.nombre_rol, ' ', ''))
+              IN ('exalumno', 'ex_alumno')
+          AND p.orientacion IN ('Técnica', 'Economía')
+        LIMIT 1
+    """, (usuario_id,))
+
+    return cursor.fetchone()
+
+
+# ------------------------------------------------------------
+# LISTAR EXALUMNOS PARA SECRETARIA
+# ------------------------------------------------------------
+
+@app.route(
+    "/api/secretaria/exalumnos",
+    methods=["GET", "OPTIONS"]
+)
+def listar_exalumnos_secretaria():
+
+    if request.method == "OPTIONS":
+        return "", 200
+
+    user_id, rol, error = autorizar_personal_administrativo()
+
+    if error:
+        return error
+
+    cursor = None
+
+    try:
+        cursor = mysql.connection.cursor()
+
+        cursor.execute("""
+            SELECT
+                u.id AS usuario_id,
+                u.nombre,
+                u.apellido,
+                u.email,
+                e.idex_alumno,
+                e.alumno_idAlumno,
+                p.orientacion,
+                COUNT(DISTINCT mp.id) AS cantidad_materias
+            FROM usuario u
+            INNER JOIN perfil p
+                ON p.idperfil = u.perfil_idperfil
+            INNER JOIN ex_alumno e
+                ON e.perfil_idperfil = p.idperfil
+            LEFT JOIN roles r
+                ON r.idINT = u.rol_id
+            LEFT JOIN materias_pendientes mp
+                ON mp.ex_alumno_idex_alumno = e.idex_alumno
+            WHERE p.es_exalumno = 1
+              AND p.orientacion IN ('Técnica', 'Economía')
+              AND LOWER(REPLACE(r.nombre_rol, ' ', ''))
+                  IN ('exalumno', 'ex_alumno')
+            GROUP BY
+                u.id,
+                u.nombre,
+                u.apellido,
+                u.email,
+                e.idex_alumno,
+                e.alumno_idAlumno,
+                p.orientacion
+            ORDER BY u.apellido, u.nombre
+        """)
+
+        filas = cursor.fetchall()
+
+        exalumnos = []
+
+        for fila in filas:
+            exalumnos.append({
+                "usuario_id": fila[0],
+                "nombre": fila[1],
+                "apellido": fila[2],
+                "email": fila[3],
+                "idex_alumno": fila[4],
+                "alumno_idAlumno": fila[5],
+                "orientacion": fila[6],
+                "cantidad_materias": fila[7]
+            })
+
+        return jsonify({"exalumnos": exalumnos}), 200
+
+    except Exception as e:
+        print("ERROR LISTANDO EXALUMNOS:", str(e), flush=True)
+
+        return jsonify({
+            "error": "No se pudieron consultar los exalumnos."
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+
+# ------------------------------------------------------------
+# OBTENER MATERIAS Y MATERIAS YA ASIGNADAS A UN EXALUMNO
+# ------------------------------------------------------------
+
+@app.route(
+    "/api/secretaria/exalumnos/<int:usuario_id>/materias",
+    methods=["GET", "OPTIONS"]
+)
+def obtener_materias_exalumno(usuario_id):
+
+    if request.method == "OPTIONS":
+        return "", 200
+
+    user_id, rol, error = autorizar_personal_administrativo()
+
+    if error:
+        return error
+
+    cursor = None
+
+    try:
+        cursor = mysql.connection.cursor()
+
+        exalumno = obtener_datos_exalumno(cursor, usuario_id)
+
+        if not exalumno:
+            return jsonify({
+                "error": "No se encontró un exalumno confirmado con orientación registrada."
+            }), 404
+
+        id_exalumno = exalumno[4]
+        orientacion = exalumno[6]
+
+        # Las materias se filtran por la orientación del PERFIL.
+        # No se utiliza la tabla cursos ni la tabla modalidad.
+        cursor.execute("""
+            SELECT
+                m.idMaterias,
+                m.Materiascol,
+                m.curso,
+                m.orientacion
+            FROM materias m
+            WHERE LOWER(TRIM(m.orientacion)) = LOWER(TRIM(%s))
+              AND m.curso IS NOT NULL
+            ORDER BY
+                CAST(LEFT(m.curso, 1) AS UNSIGNED),
+                m.curso,
+                m.idMaterias
+        """, (orientacion,))
+
+        filas_materias = cursor.fetchall()
+
+        materias = []
+
+        for fila in filas_materias:
+            materias.append({
+                "idMaterias": fila[0],
+                "nombre": fila[1],
+                "curso": fila[2],
+                "orientacion": fila[3]
+            })
+
+        cursor.execute("""
+            SELECT materias_idmaterias
+            FROM materias_pendientes
+            WHERE ex_alumno_idex_alumno = %s
+        """, (id_exalumno,))
+
+        filas_pendientes = cursor.fetchall()
+
+        materias_pendientes = [
+            {"materias_idmaterias": fila[0]}
+            for fila in filas_pendientes
+        ]
+
+        return jsonify({
+            "exalumno": {
+                "usuario_id": exalumno[0],
+                "nombre": exalumno[1],
+                "apellido": exalumno[2],
+                "email": exalumno[3],
+                "idex_alumno": exalumno[4],
+                "alumno_idAlumno": exalumno[5],
+                "orientacion": exalumno[6]
+            },
+            "materias": materias,
+            "materias_pendientes": materias_pendientes
+        }), 200
+
+    except Exception as e:
+        print("ERROR OBTENIENDO MATERIAS:", str(e), flush=True)
+
+        return jsonify({
+            "error": "No se pudieron consultar las materias."
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+
+# ------------------------------------------------------------
+# GUARDAR MATERIAS PENDIENTES
+# ------------------------------------------------------------
+
+@app.route(
+    "/api/secretaria/materias-pendientes",
+    methods=["POST", "OPTIONS"]
+)
+def guardar_materias_pendientes():
+
+    if request.method == "OPTIONS":
+        return "", 200
+
+    user_id, rol, error = autorizar_personal_administrativo()
+
+    if error:
+        return error
+
+    datos = request.get_json(silent=True) or {}
+
+    usuario_id = datos.get("usuario_id")
+    materias_ids = datos.get("materias_ids")
+
+    if not usuario_id or not isinstance(materias_ids, list):
+        return jsonify({"error": "Los datos recibidos no son válidos."}), 400
+
+    try:
+        usuario_id = int(usuario_id)
+        materias_ids = list(set(int(x) for x in materias_ids))
+    except (ValueError, TypeError):
+        return jsonify({"error": "Hay identificadores inválidos."}), 400
+
+    cursor = None
+
+    try:
+        cursor = mysql.connection.cursor()
+
+        exalumno = obtener_datos_exalumno(cursor, usuario_id)
+
+        if not exalumno:
+            return jsonify({"error": "No se encontró el exalumno confirmado."}), 404
+
+        id_exalumno = exalumno[4]
+        id_alumno = exalumno[5]
+        orientacion = exalumno[6]
+
+        cursor.execute("""
+            SELECT idMaterias
+            FROM materias
+            WHERE LOWER(TRIM(orientacion)) = LOWER(TRIM(%s))
+              AND curso IS NOT NULL
+        """, (orientacion,))
+
+        ids_permitidos = {int(fila[0]) for fila in cursor.fetchall()}
+
+        if not set(materias_ids).issubset(ids_permitidos):
+            return jsonify({
+                "error": "Hay materias que no corresponden a la orientación."
+            }), 400
+
+        cursor.execute("""
+            SELECT materias_idmaterias
+            FROM materias_pendientes
+            WHERE ex_alumno_idex_alumno = %s
+        """, (id_exalumno,))
+
+        ids_existentes = {
+            int(fila[0]) for fila in cursor.fetchall()
+        }
+
+        nuevas = set(materias_ids) - ids_existentes
+
+        for materia_id in nuevas:
+            cursor.execute("""
+                INSERT INTO materias_pendientes (
+                    alumno_idAlumno,
+                    materias_idmaterias,
+                    estado,
+                    ex_alumno_idex_alumno
+                )
+                VALUES (%s, %s, 'Pendiente', %s)
+            """, (id_alumno, materia_id, id_exalumno))
+
+        mysql.connection.commit()
+
+        return jsonify({
+            "mensaje": "Las nuevas materias pendientes se guardaron correctamente.",
+            "cantidad_nuevas": len(nuevas)
+        }), 200
+
+    except Exception as e:
+        mysql.connection.rollback()
+        print("ERROR GUARDANDO MATERIAS:", str(e), flush=True)
+
+        return jsonify({
+            "error": "No se pudieron guardar las materias."
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
