@@ -1454,6 +1454,218 @@ def baja_mesa_exalumno():
             cursor.close()
 
 
+# ============================================================
+# PANEL DE SECRETARÍA: INSCRIPTOS Y ARMADO DE MESAS
+# ============================================================
+
+@app.route("/api/secretaria/inscriptos", methods=["GET", "OPTIONS"])
+def listar_inscriptos_mesa_secretaria():
+    if request.method == "OPTIONS":
+        return "", 200
+
+    user_id, rol, error = autorizar_personal_administrativo()
+    if error:
+        return error
+
+    cursor = None
+    try:
+        cursor = mysql.connection.cursor()
+
+        cursor.execute("""
+            SELECT
+                im.idinscripcion_mesa,
+                im.fecha_inscripcion,
+                im.estado,
+                m.idMaterias,
+                m.Materiascol AS materia_nombre,
+                m.curso,
+                m.orientacion,
+                e.idex_alumno,
+                u.id AS usuario_id,
+                u.nombre,
+                u.apellido,
+                u.email
+            FROM inscripcion_mesa im
+            INNER JOIN materias m
+                ON m.idMaterias = im.materias_idMaterias
+            INNER JOIN ex_alumno e
+                ON e.idex_alumno = im.ex_alumno_idex_alumno
+            INNER JOIN perfil p
+                ON p.idperfil = e.perfil_idperfil
+            INNER JOIN usuario u
+                ON u.perfil_idperfil = p.idperfil
+            ORDER BY im.fecha_inscripcion DESC, m.curso, m.Materiascol
+        """)
+
+        filas = cursor.fetchall()
+        inscriptos = []
+
+        for fila in filas:
+            fecha_ins = (
+                fila[1].strftime("%Y-%m-%d %H:%M:%S")
+                if hasattr(fila[1], "strftime")
+                else str(fila[1] or "")
+            )
+            inscriptos.append({
+                "idinscripcion_mesa": fila[0],
+                "fecha_inscripcion": fecha_ins,
+                "estado": fila[2],
+                "idMaterias": fila[3],
+                "materia": fila[4],
+                "curso": fila[5],
+                "orientacion": fila[6],
+                "idex_alumno": fila[7],
+                "usuario_id": fila[8],
+                "alumno": f"{fila[9] or ''} {fila[10] or ''}".strip(),
+                "email": fila[11]
+            })
+
+        return jsonify({"inscriptos": inscriptos}), 200
+
+    except Exception as e:
+        print("ERROR LISTANDO INSCRIPTOS SECRETARIA:", str(e), flush=True)
+        return jsonify({"error": "No se pudieron consultar los exalumnos inscriptos."}), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+
+@app.route("/api/secretaria/armar-mesa", methods=["POST", "OPTIONS"])
+def armar_mesa_secretaria():
+    """
+    1. Busca la materia y el curso en MySQL.
+    2. Registra la relación en la tabla materias_cursos (cursos_idCursos, materias_idMaterias).
+    3. Confirma en inscripcion_mesa a los exalumnos anotados en esa materia y devuelve el detalle.
+    """
+    if request.method == "OPTIONS":
+        return "", 200
+
+    user_id, rol, error = autorizar_personal_administrativo()
+    if error:
+        return error
+
+    datos = request.get_json(silent=True) or {}
+    curso_codigo = str(datos.get("curso") or "").strip()
+    materia_nombre = str(datos.get("materia") or "").strip()
+    orientacion = str(datos.get("modalidad") or "").strip()
+
+    if not curso_codigo or not materia_nombre:
+        return jsonify({"error": "Faltan datos de curso o materia."}), 400
+
+    cursor = None
+    try:
+        cursor = mysql.connection.cursor()
+
+        # 1. Buscar idMaterias en la tabla materias
+        cursor.execute("""
+            SELECT idMaterias, Materiascol, curso
+            FROM materias
+            WHERE LOWER(TRIM(Materiascol)) = LOWER(TRIM(%s))
+              AND LOWER(TRIM(curso)) = LOWER(TRIM(%s))
+            LIMIT 1
+        """, (materia_nombre, curso_codigo))
+
+        fila_materia = cursor.fetchone()
+        if not fila_materia:
+            return jsonify({
+                "error": f"No se encontró la materia '{materia_nombre}' ({curso_codigo}) en la base de datos."
+            }), 404
+
+        id_materia = int(fila_materia[0])
+        nombre_materia_db = fila_materia[1]
+
+        # 2. Buscar idCursos en la tabla cursos (si existe el código de curso, ej: '1A', '6B')
+        cursor.execute("""
+            SELECT idCursos
+            FROM cursos
+            WHERE LOWER(TRIM(curso)) = LOWER(TRIM(%s))
+               OR LOWER(TRIM(nombre)) = LOWER(TRIM(%s))
+            LIMIT 1
+        """, (curso_codigo, curso_codigo))
+
+        fila_curso = cursor.fetchone()
+
+        # Si la tabla cursos usa otra columna o no tiene esa fila, usamos el número del curso como respaldo
+        if fila_curso:
+            id_curso = int(fila_curso[0])
+        else:
+            cursor.execute("SELECT idCursos FROM cursos LIMIT 1")
+            primer_curso = cursor.fetchone()
+            id_curso = int(primer_curso[0]) if primer_curso else int("".join(filter(str.isdigit, curso_codigo)) or 1)
+
+        # 3. Insertar en materias_cursos si aún no existe esa combinación
+        cursor.execute("""
+            SELECT idmaterias_cursos
+            FROM materias_cursos
+            WHERE cursos_idCursos = %s
+              AND materias_idMaterias = %s
+            LIMIT 1
+        """, (id_curso, id_materia))
+
+        existente = cursor.fetchone()
+        if existente:
+            id_materias_cursos = existente[0]
+        else:
+            cursor.execute("""
+                INSERT INTO materias_cursos (cursos_idCursos, materias_idMaterias)
+                VALUES (%s, %s)
+            """, (id_curso, id_materia))
+            id_materias_cursos = cursor.lastrowid
+
+        # 4. Obtener los exalumnos inscriptos en esa materia y pasarlos a 'Confirmado'
+        cursor.execute("""
+            SELECT
+                im.idinscripcion_mesa,
+                e.idex_alumno,
+                u.nombre,
+                u.apellido,
+                u.email
+            FROM inscripcion_mesa im
+            INNER JOIN ex_alumno e ON e.idex_alumno = im.ex_alumno_idex_alumno
+            INNER JOIN perfil p ON p.idperfil = e.perfil_idperfil
+            INNER JOIN usuario u ON u.perfil_idperfil = p.idperfil
+            WHERE im.materias_idMaterias = %s
+        """, (id_materia,))
+
+        inscriptos_materia = cursor.fetchall()
+
+        cursor.execute("""
+            UPDATE inscripcion_mesa
+            SET estado = 'Confirmado'
+            WHERE materias_idMaterias = %s
+        """, (id_materia,))
+
+        mysql.connection.commit()
+
+        exalumnos_mesa = [
+            {
+                "idinscripcion_mesa": row[0],
+                "idex_alumno": row[1],
+                "nombre": f"{row[2] or ''} {row[3] or ''}".strip(),
+                "email": row[4]
+            }
+            for row in inscriptos_materia
+        ]
+
+        return jsonify({
+            "mensaje": "Mesa armada y registrada en materias_cursos correctamente.",
+            "idmaterias_cursos": id_materias_cursos,
+            "cursos_idCursos": id_curso,
+            "materias_idMaterias": id_materia,
+            "materia_nombre": nombre_materia_db,
+            "exalumnos": exalumnos_mesa
+        }), 201
+
+    except Exception as e:
+        mysql.connection.rollback()
+        print("ERROR ARMANDO MESA SECRETARIA:", str(e), flush=True)
+        return jsonify({"error": f"No se pudo registrar la mesa en Railway: {str(e)}"}), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
