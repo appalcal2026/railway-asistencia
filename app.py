@@ -1577,12 +1577,11 @@ def armar_mesa_secretaria():
 
         # 2. Buscar idCursos en la tabla cursos usando la columna nombre_curso
         cursor.execute("""
-            SELECT idCursos
-            FROM cursos
-            WHERE LOWER(TRIM(nombre_curso)) = LOWER(TRIM(%s))
-            LIMIT 1
+        SELECT idCursos
+        FROM cursos
+        WHERE LOWER(TRIM(nombre_curso)) = LOWER(TRIM(%s))
+        LIMIT 1
         """, (curso_codigo,))
-
         fila_curso = cursor.fetchone()
         if not fila_curso:
             return jsonify({
@@ -1658,6 +1657,71 @@ def armar_mesa_secretaria():
         mysql.connection.rollback()
         print("ERROR ARMANDO MESA SECRETARIA:", str(e), flush=True)
         return jsonify({"error": f"No se pudo registrar la mesa en Railway: {str(e)}"}), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+
+
+@app.route("/api/exalumno/confirmar-asistencia-mesa", methods=["POST", "OPTIONS"])
+def confirmar_asistencia_mesa_exalumno():
+    if request.method == "OPTIONS":
+        return "", 200
+
+    user_id = obtener_usuario_del_token()
+    if not user_id:
+        return jsonify({"error": "La sesión no es válida o venció."}), 401
+
+    datos = request.get_json(silent=True) or {}
+    id_inscripcion = datos.get("idinscripcion_mesa")
+
+    if not id_inscripcion:
+        return jsonify({"error": "Falta el identificador de la inscripción."}), 400
+
+    cursor = None
+    try:
+        cursor = mysql.connection.cursor()
+
+        exalumno = obtener_datos_exalumno(cursor, user_id)
+        if not exalumno:
+            return jsonify({"error": "No se encontró el perfil del exalumno."}), 404
+
+        id_exalumno = exalumno[4]
+
+        cursor.execute("""
+            SELECT idinscripcion_mesa, estado
+            FROM inscripcion_mesa
+            WHERE idinscripcion_mesa = %s
+              AND ex_alumno_idex_alumno = %s
+            LIMIT 1
+        """, (int(id_inscripcion), id_exalumno))
+
+        fila = cursor.fetchone()
+        if not fila:
+            return jsonify({"error": "No se encontró la inscripción solicitada."}), 404
+
+        if fila[1] != "Confirmado":
+            return jsonify({
+                "error": "Esta mesa todavía no fue armada por Secretaría o ya fue confirmada por vos."
+            }), 400
+
+        cursor.execute("""
+            UPDATE inscripcion_mesa
+            SET estado = 'Inscripto'
+            WHERE idinscripcion_mesa = %s
+              AND ex_alumno_idex_alumno = %s
+        """, (int(id_inscripcion), id_exalumno))
+
+        mysql.connection.commit()
+
+        return jsonify({
+            "mensaje": "¡Asistencia confirmada! Tu inscripción definitiva quedó registrada."
+        }), 200
+
+    except Exception as e:
+        mysql.connection.rollback()
+        print("ERROR CONFIRMANDO ASISTENCIA EXALUMNO:", str(e), flush=True)
+        return jsonify({"error": "No se pudo confirmar la asistencia a la mesa."}), 500
 
     finally:
         if cursor:
