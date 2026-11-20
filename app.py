@@ -672,6 +672,21 @@ def login_google():
                 apellido_google=informacion_google.get("family_name", "")
             )
 
+        if not usuario:
+            usuario = registrar_usuario_institucional_automatico(
+                email=google_email,
+                nombre_google=informacion_google.get("given_name", ""),
+                apellido_google=informacion_google.get("family_name", "")
+            )
+
+        return preparar_respuesta_usuario(usuario)
+
+    except Exception as e:
+        print("ERROR EN LOGIN GOOGLE:", str(e), flush=True)
+        return jsonify({
+            "error": "Ocurrió un error al iniciar sesión con Google."
+        }), 500
+
 # ==========================================
 # PERFIL DEL EXALUMNO
 # ==========================================
