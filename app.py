@@ -1575,24 +1575,21 @@ def armar_mesa_secretaria():
         id_materia = int(fila_materia[0])
         nombre_materia_db = fila_materia[1]
 
-        # 2. Buscar idCursos en la tabla cursos (si existe el código de curso, ej: '1A', '6B')
+        # 2. Buscar idCursos en la tabla cursos usando la columna nombre_curso
         cursor.execute("""
             SELECT idCursos
             FROM cursos
-            WHERE LOWER(TRIM(curso)) = LOWER(TRIM(%s))
-               OR LOWER(TRIM(nombre)) = LOWER(TRIM(%s))
+            WHERE LOWER(TRIM(nombre_curso)) = LOWER(TRIM(%s))
             LIMIT 1
-        """, (curso_codigo, curso_codigo))
+        """, (curso_codigo,))
 
         fila_curso = cursor.fetchone()
+        if not fila_curso:
+            return jsonify({
+                "error": f"No se encontró el curso '{curso_codigo}' en la tabla cursos."
+            }), 404
 
-        # Si la tabla cursos usa otra columna o no tiene esa fila, usamos el número del curso como respaldo
-        if fila_curso:
-            id_curso = int(fila_curso[0])
-        else:
-            cursor.execute("SELECT idCursos FROM cursos LIMIT 1")
-            primer_curso = cursor.fetchone()
-            id_curso = int(primer_curso[0]) if primer_curso else int("".join(filter(str.isdigit, curso_codigo)) or 1)
+        id_curso = int(fila_curso[0])
 
         # 3. Insertar en materias_cursos si aún no existe esa combinación
         cursor.execute("""
