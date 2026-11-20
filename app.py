@@ -132,6 +132,7 @@ def validar_rol(rol):
 
 
 def preparar_respuesta_usuario(usuario):
+
     return {
         "id": usuario[0],
         "nombre": usuario[1],
@@ -139,6 +140,58 @@ def preparar_respuesta_usuario(usuario):
         "email": usuario[3],
         "rol": validar_rol(usuario[6])
     }
+
+def registrar_usuario_institucional_automatico(email, nombre_google="", apellido_google="", password=""):
+    """
+    Crea automáticamente el perfil, usuario (rol ex_alumno) y registro en ex_alumno
+    para cualquier correo válido terminado en @sagradoalcal.edu.ar que aún no exista.
+    """
+    cursor = mysql.connection.cursor()
+    try:
+        # 1. Buscar el rol de exalumno en la tabla roles
+        cursor.execute("""
+            SELECT idINT
+            FROM roles
+            WHERE LOWER(REPLACE(nombre_rol, ' ', '')) IN ('exalumno', 'ex_alumno', 'ex-alumno')
+            LIMIT 1
+        """)
+        fila_rol = cursor.fetchone()
+        rol_id = int(fila_rol[0]) if fila_rol else 1
+
+        # 2. Derivar nombre y apellido desde el correo si no vienen de Google
+        local_part = email.split("@")[0]
+        partes = [p.capitalize() for p in local_part.replace("_", ".").split(".") if p]
+        nombre = (nombre_google or (partes[0] if len(partes) > 0 else "Usuario")).strip()
+        apellido = (apellido_google or (" ".join(partes[1:]) if len(partes) > 1 else "Institucional")).strip()
+
+        # 3. Crear registro en perfil
+        cursor.execute("""
+            INSERT INTO perfil (es_exalumno, orientacion)
+            VALUES (1, NULL)
+        """)
+        perfil_id = cursor.lastrowid
+
+        # 4. Crear registro en usuario
+        cursor.execute("""
+            INSERT INTO usuario (nombre, apellido, email, contrasenia, google_email, rol_id, perfil_idperfil)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (nombre, apellido, email, password or "", email, rol_id, perfil_id))
+
+        # 5. Vincular en ex_alumno
+        cursor.execute("""
+            INSERT INTO ex_alumno (perfil_idperfil)
+            VALUES (%s)
+        """, (perfil_id,))
+
+        mysql.connection.commit()
+    except Exception as e:
+        mysql.connection.rollback()
+        print("ERROR AUTO-REGISTRANDO USUARIO:", str(e), flush=True)
+        raise
+    finally:
+        cursor.close()
+
+    return obtener_usuario_por_email(email)
 
 #####################################################################################
 
@@ -496,9 +549,10 @@ def iniciar_sesion():
         usuario = obtener_usuario_por_email(email)
 
         if not usuario:
-            return jsonify({
-                "error": "Usuario no encontrado."
-            }), 401
+            usuario = registrar_usuario_institucional_automatico(
+                email=email,
+                password=password
+            )
 
         contrasena_guardada = usuario[4]
 
@@ -575,12 +629,17 @@ def login_google():
             GOOGLE_CLIENT_ID
         )
 
-        google_email = informacion_google.get("email", "").lower()
+        google_email = informacion_google.get("email", "").strip().lower()
         email_verificado = informacion_google.get("email_verified", False)
 
         if not email_verificado:
             return jsonify({
                 "error": "Google no pudo verificar tu correo."
+            }), 403
+
+        if not google_email.endswith(DOMINIO_INSTITUCIONAL):
+            return jsonify({
+                "error": "Debes utilizar un correo institucional (@sagradoalcal.edu.ar)."
             }), 403
 
         # Buscar la cuenta institucional en nuestra base de datos.
@@ -607,48 +666,11 @@ def login_google():
         cursor.close()
 
         if not usuario:
-            return jsonify({
-                "error": "Tu cuenta de Google no está registrada en el sistema."
-            }), 403
-
-        # La cuenta institucional registrada debe pertenecer al colegio.
-        email_institucional = usuario[3].lower()
-
-        if not email_institucional.endswith(DOMINIO_INSTITUCIONAL):
-            return jsonify({
-                "error": "La cuenta institucional no está habilitada."
-            }), 403
-
-        datos_usuario = preparar_respuesta_usuario(usuario)
-
-        if not datos_usuario["rol"]:
-            return jsonify({
-                "error": "Tu cuenta no tiene un rol habilitado."
-            }), 403
-
-        token_sesion = crear_token_sesion(datos_usuario["id"])
-
-        return jsonify({
-        "mensaje": "Inicio de sesión con Google exitoso.",
-        "usuario": datos_usuario,
-        "picture": informacion_google.get("picture"),
-        "token": token_sesion
-        }), 200
-    
-    except ValueError as e:
-        print("ERROR TOKEN GOOGLE:", str(e), flush=True)
-
-        return jsonify({
-            "error": "La credencial de Google no es válida."
-        }), 401
-
-    except Exception as e:
-        print("ERROR LOGIN GOOGLE:", str(e), flush=True)
-
-        return jsonify({
-            "error": "No se pudo verificar la cuenta de Google."
-        }), 500
-
+            usuario = registrar_usuario_institucional_automatico(
+                email=google_email,
+                nombre_google=informacion_google.get("given_name", ""),
+                apellido_google=informacion_google.get("family_name", "")
+            )
 
 # ==========================================
 # PERFIL DEL EXALUMNO
