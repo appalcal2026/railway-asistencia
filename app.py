@@ -666,18 +666,9 @@ def login_google():
         cursor.close()
 
         if not usuario:
-            usuario = registrar_usuario_institucional_automatico(
-                email=google_email,
-                nombre_google=informacion_google.get("given_name", ""),
-                apellido_google=informacion_google.get("family_name", "")
-            )
-
-        if not usuario:
-            usuario = registrar_usuario_institucional_automatico(
-                email=google_email,
-                nombre_google=informacion_google.get("given_name", ""),
-                apellido_google=informacion_google.get("family_name", "")
-            )
+            return jsonify({
+                "error": "No tenés una cuenta registrada en el sistema. Comunicate con Secretaría."
+            }), 403
 
         return preparar_respuesta_usuario(usuario)
 
@@ -686,6 +677,94 @@ def login_google():
         return jsonify({
             "error": "Ocurrió un error al iniciar sesión con Google."
         }), 500
+
+
+@app.route("/login/google/movil", methods=["POST", "OPTIONS"])
+def login_google_movil():
+
+    if request.method == "OPTIONS":
+        return "", 200
+
+    try:
+        datos = request.get_json(silent=True) or {}
+        credential = datos.get("credential")
+
+        if not credential:
+            return jsonify({
+                "error": "No se recibió la credencial de Google."
+            }), 400
+
+        GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
+
+        if not GOOGLE_CLIENT_ID:
+            return jsonify({
+                "error": "Falta configurar GOOGLE_CLIENT_ID en Railway."
+            }), 500
+
+        # Verificar la identidad con Google
+        informacion_google = id_token.verify_oauth2_token(
+            credential,
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID
+        )
+
+        google_email = informacion_google.get(
+            "email", ""
+        ).strip().lower()
+
+        email_verificado = informacion_google.get(
+            "email_verified", False
+        )
+
+        if not email_verificado:
+            return jsonify({
+                "error": "Google no pudo verificar tu correo."
+            }), 403
+
+        if not google_email.endswith(DOMINIO_INSTITUCIONAL):
+            return jsonify({
+                "error": "Debes utilizar un correo institucional (@sagradoalcal.edu.ar)."
+            }), 403
+
+        # Buscar exclusivamente usuarios existentes
+        cursor = mysql.connection.cursor()
+
+        sql = """
+            SELECT
+                u.id,
+                u.nombre,
+                u.apellido,
+                u.email,
+                u.contrasenia,
+                u.google_email,
+                r.nombre_rol
+            FROM usuario u
+            LEFT JOIN roles r ON u.rol_id = r.idINT
+            WHERE LOWER(u.email) = LOWER(%s)
+               OR LOWER(u.google_email) = LOWER(%s)
+            LIMIT 1
+        """
+
+        cursor.execute(sql, (google_email, google_email))
+        usuario = cursor.fetchone()
+        cursor.close()
+
+        if not usuario:
+            return jsonify({
+                "error": "No tenés una cuenta registrada en el sistema. Comunicate con Secretaría."
+            }), 403
+
+        # Devolver los datos y el rol registrados en Railway
+        return preparar_respuesta_usuario(usuario)
+
+    except Exception as e:
+        print("ERROR EN LOGIN GOOGLE MOVIL:", str(e), flush=True)
+
+        return jsonify({
+            "error": "Ocurrió un error al iniciar sesión en la aplicación móvil."
+        }), 500
+
+
 
 # ==========================================
 # PERFIL DEL EXALUMNO
